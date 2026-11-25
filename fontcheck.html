@@ -1,0 +1,19 @@
+<!doctype html><meta charset=utf-8><title>fonts</title>
+<body style="font:14px monospace;background:#111;color:#eee;padding:1em">
+<h3>font check</h3><pre id=out>running…</pre>
+<script>
+const tests = ["DejaVu Sans","DejaVu Sans Mono","DejaVu Serif","DejaVu Sans Bold",
+  "Liberation Sans","Liberation Mono","Noto Sans","Noto Color Emoji",
+  "Ubuntu","Arial","Helvetica","Times New Roman","Courier New","Symbola"];
+const c = document.createElement("canvas").getContext("2d");
+const base = '"__nope__", monospace';
+function w(f){ c.font = '16px ' + f; return c.measureText("MmWwQq il1|@#").width; }
+const wb = w(base);
+let s = "baseline (fallback monospace): " + wb.toFixed(2) + "\n\n";
+for (const f of tests){
+  const wf = w('"' + f + '", monospace');
+  const present = Math.abs(wf - wb) > 0.01;
+  s += (present ? "PRESENT " : "absent  ") + f.padEnd(22) + wf.toFixed(2) + "\n";
+}
+document.getElementById("out").textContent = s;
+</script>

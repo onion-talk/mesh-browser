@@ -1,0 +1,19 @@
+<!doctype html><meta charset="utf-8"><title>fp</title>
+<body style="font:18px monospace;padding:20px"><pre id="o">loading...</pre>
+<script>
+var r=[];
+function add(k,f){try{r.push(k+": "+f())}catch(e){r.push(k+": ERROR "+e.message)}}
+add("userAgent",()=>navigator.userAgent);
+add("platform",()=>navigator.platform);
+add("language",()=>navigator.language+" | "+navigator.languages);
+add("timezone",()=>Intl.DateTimeFormat().resolvedOptions().timeZone);
+add("tz offset (min)",()=>new Date().getTimezoneOffset());
+add("screen",()=>screen.width+"x"+screen.height);
+add("window inner",()=>innerWidth+"x"+innerHeight);
+add("pixel ratio",()=>devicePixelRatio);
+add("cpu cores",()=>navigator.hardwareConcurrency);
+add("memory",()=>navigator.deviceMemory);
+add("webgl",()=>{var g=document.createElement("canvas").getContext("webgl");return g?g.getParameter(g.VERSION):"off"});
+add("canvas",()=>{var c=document.createElement("canvas");c.width=200;c.height=40;var x=c.getContext("2d");x.font="16px Arial";x.fillText("Mesh test",5,25);var s=c.toDataURL(),h=0;for(var i=0;i<s.length;i++)h=(h*31+s.charCodeAt(i))|0;return h});
+document.getElementById("o").textContent=r.join("\n");
+</script>

@@ -1,0 +1,27 @@
+name: CI
+
+on:
+  push:
+    branches: [main, "feat/**", "fix/**"]
+  pull_request:
+
+jobs:
+  lint-and-verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install ruff & shellcheck
+        run: |
+          pip install --quiet ruff
+          sudo apt-get update -q && sudo apt-get install -y -q shellcheck
+      - name: Python syntax & lint
+        run: |
+          python3 -m py_compile server.py mesh-router.py vnc_token_plugin.py mesh-scrubber.py mesh-app.py fullscreen.py
+          ruff check server.py mesh-router.py vnc_token_plugin.py
+      - name: ShellCheck
+        run: shellcheck start-mesh.sh mesh-run.sh
+      - name: Router & Control Plane unit smoke tests
+        run: python3 tests/test_mesh_security.py

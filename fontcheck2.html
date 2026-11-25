@@ -1,0 +1,13 @@
+<!doctype html><meta charset=utf-8><body style="font:14px monospace;background:#111;color:#eee;padding:1em">
+<pre id=out></pre>
+<script>
+const c = document.createElement("canvas").getContext("2d");
+function m(f, s){ c.font='16px '+f; return c.measureText(s).width.toFixed(2); }
+const fams = ["DejaVu Sans","DejaVu Sans Mono","DejaVu Serif","sans-serif","monospace"];
+let out = "";
+for (const f of fams){
+  out += f.padEnd(18) + " | W=" + m('"'+f+'", monospace',"W")
+       + "   i=" + m('"'+f+'", monospace',"i") + "\n";
+}
+document.getElementById("out").textContent = out;
+</script>

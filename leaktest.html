@@ -1,0 +1,30 @@
+<!doctype html><meta charset=utf-8><body style="font:14px monospace;background:#111;color:#eee;padding:1em">
+<h3>Leak Check</h3><pre id=out>Running...</pre>
+<script>
+let out = "";
+function log(s) { out += s + "\n"; document.getElementById("out").textContent = out; }
+
+// 1. WebRTC check
+if (typeof RTCPeerConnection === "undefined") {
+  log("WebRTC: BLOCKED (RTCPeerConnection is undefined)");
+} else {
+  log("WebRTC: ENABLED (leak possible!)");
+  try {
+    const pc = new RTCPeerConnection();
+    pc.createDataChannel("");
+    pc.onicecandidate = e => {
+      if (e.candidate) {
+        const ip = e.candidate.candidate.split(" ")[4];
+        log("WebRTC LEAKED IP: " + ip);
+      }
+    };
+    pc.createOffer().then(o => pc.setLocalDescription(o));
+  } catch(e) { log("WebRTC error: " + e.message); }
+}
+
+// 2. API IP check (via Tor)
+fetch("https://check.torproject.org/api/ip")
+  .then(r => r.json())
+  .then(d => log("API IP: " + d.IP + " (IsTor: " + d.IsTor + ")"))
+  .catch(e => log("API IP fetch failed: " + e.message));
+</script>

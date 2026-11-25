@@ -1,0 +1,14 @@
+{
+  "network_http_cache_disabled": true,
+  "network_enforce_tls_enabled": false,
+  "network_local_directory_listing_enabled": false,
+  "dom_webrtc_enabled": false,
+  "dom_bluetooth_enabled": false,
+  "dom_gamepad_enabled": false,
+  "dom_geolocation_enabled": false,
+  "dom_notification_enabled": false,
+  "dom_permissions_enabled": false,
+  "dom_webgpu_enabled": false,
+  "dom_webxr_enabled": false,
+  "dom_offscreen_canvas_enabled": false
+}
