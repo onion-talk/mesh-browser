@@ -9,17 +9,17 @@ A sandboxed, hybrid **I2P + Nym Mixnet** desktop browser built around a custom t
 - **Desktop App Shell (`mesh-app.py`)**
   Native GTK3 + WebKit2 (`4.1`) window that hosts the browser UI (`ui.html`) on `127.0.0.1:8080` or run ./start-mesh.sh then an tauri app opens simple use.
 - **Control Server (`server.py`)**
-  Locked to `127.0.0.1:8080` with strict origin checks and URL sanitization. Manages per-tab sandboxes, security levels, privacy toggles, route resets, and identity wipes.
+  Locked to `127.0.0.1:8080` with `Host` allowlisting, per-session `X-Mesh-Token` CSRF protection (`POST`-only mutations), static asset allowlisting (`ui.html` + logos only), live socket health probing, and URL sanitization. Manages per-tab sandboxes, security levels, privacy toggles, route resets, and identity wipes.
 - **Hybrid Fail-Closed Proxy (`mesh-router.py`)**
   Listens on `127.0.0.1:4446`:
-  - `*.i2p` domains → forwarded to **`i2pd`** (`127.0.0.1:4444`)
+  - `*.i2p` domains → forwarded to **`i2pd`** (`127.0.0.1:4444`), transparently demultiplexing Servo's `CONNECT host.i2p:443` cleartext HTTP requests onto port 80 while preserving genuine TLS (`0x16`) tunnels
   - Clearnet (`http://` / `https://`) → forwarded to **`nym-socks5-client`** (`127.0.0.1:1080`) using SOCKS5 remote DNS (`ATYP=0x03`)
-  - Blocks localhost / private LAN addresses and **fails closed** (never falls back to your real IP) if Nym is offline.
+  - Blocks localhost / private LAN addresses and **fails closed** (never falls back to your real IP or raw `:4444`) if Nym or `mesh-router.py` is offline.
 - **Per-Tab Sandbox (`mesh-run.sh`)**
   Launches `servoshell` inside `bwrap` with:
   - `--cap-drop ALL`, `--unshare-net`, `--unshare-pid`, `--unshare-uts`, `--unshare-cgroup`, `--clearenv`
   - Host-side Unix socket bridge (`socat`) into the sandbox (no direct network interfaces inside)
-  - Isolated `Xvfb` display (`:2`–`:5`) + borderless `openbox` + `x11vnc` + `websockify`/`novnc` (`6080`–`6083`)
+  - Dedicated per-tab `Xvfb` display + `Xauthority` cookie (`0600`) + `x11vnc -unixsock -rfbport 0 -noipv6` (zero TCP VNC listeners) + single `websockify` gateway (`127.0.0.1:6080`) gated by per-tab CSPRNG Unix socket tokens
 - **Metadata Vault (`mesh-scrubber.py`)**
   Watches `~/Mesh-Share`, strips EXIF/GPS/author metadata with `mat2`, zeroes timestamps, and mounts cleaned files read-only inside sandboxes at `/home/mesh/Share` (unsupported file types are blocked).
 
@@ -47,11 +47,10 @@ Configured live from the UI (`Standard` / `Safer` / `Safest`):
 ---
 
 ## Usage & Installation
-- git clone https://github.com/bisheshnaharki9-sketch/mesh-browser.git
-- cd mesh-browser
-# Download servoshell-runtime-linux-x86_64.tar.gz and nym-socks5-client from the latest Release, then:
-- tar -xzvf servoshell-runtime-linux-x86_64.tar.gz
-- chmod +x servoshell nym-socks5-client start-mesh.sh mesh-run.sh
-- ./start-mesh.sh
-- Start the full Mesh Browser stack 
+- `git clone https://github.com/onion-talk/mesh-browser.git`
+- `cd mesh-browser`
+- Download `servoshell-runtime-linux-x86_64.tar.gz` and `nym-socks5-client` from the latest Release, verify SHA-256 digests, then:
+- `tar -xzvf servoshell-runtime-linux-x86_64.tar.gz`
+- `chmod +x servoshell nym-socks5-client start-mesh.sh mesh-run.sh`
+- `./start-mesh.sh`
 

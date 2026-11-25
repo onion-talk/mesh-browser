@@ -1,5 +1,7 @@
 *
 !.gitignore
+!.gitattributes
+!vnc_token_plugin.py
 !README.md
 !server.py
 !ui.html
@@ -24,3 +26,9 @@
 !fonts/**
 !userscripts/
 !userscripts/**
+!LICENSE
+!tests/
+!tests/**
+!.github/
+!.github/workflows/
+!.github/workflows/**

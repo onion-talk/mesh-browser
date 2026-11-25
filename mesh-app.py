@@ -33,7 +33,7 @@ webview.set_background_color(rgba)
 
 settings = webview.get_settings()
 settings.set_enable_javascript(True)
-settings.set_javascript_can_access_clipboard(True)
+settings.set_javascript_can_access_clipboard(False)
 
 def on_load_failed(wv, event, uri, err):
     print(f"[mesh-app] load failed: {uri} -> {err}", flush=True)

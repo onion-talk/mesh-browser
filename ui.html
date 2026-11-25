@@ -129,39 +129,118 @@ h1{font-size:clamp(26px,5vw,38px);margin:0 0 6px;letter-spacing:-.02em}
 <main id="view"></main>
 
 <script>
-/* ---------- Backend adapter: replace these stubs with your real calls ---------- */
+/* ---------- Authenticated backend adapter ---------- */
+const MESH_TOKEN = window.__MESH_TOKEN__ || "";
+const VNC_PORT = window.__MESH_VNC_PORT__ || 6080;
 const tabCircuits = {};
+const tabVnc = {};
+
+function randSuffix(){
+  const a = new Uint32Array(1);
+  crypto.getRandomValues(a);
+  return a[0].toString(36).slice(0, 6);
+}
+
+async function apiCall(method, path, bodyObj){
+  const opts = { method, headers: { "X-Mesh-Token": MESH_TOKEN } };
+  if (bodyObj !== undefined) {
+    opts.headers["Content-Type"] = "application/json";
+    opts.body = JSON.stringify(bodyObj);
+  }
+  const r = await fetch(path, opts);
+  if (!r.ok) throw new Error("API " + path + " -> " + r.status);
+  return r.json();
+}
+
+function buildRouteSummary(net, tabUrl, circuit){
+  const isI2p = /\.i2p(\/|$)/i.test(tabUrl || "");
+  return [
+    {
+      role: "Sandbox",
+      place: "bwrap + Xvfb",
+      id: circuit ? circuit.slice(-8) : "isolated"
+    },
+    {
+      role: "Hybrid Router",
+      place: net.router ? "127.0.0.1:4446 (online)" : "127.0.0.1:4446 (offline)",
+      id: net.router ? "fail-closed" : "blocked"
+    },
+    {
+      role: isI2p ? "I2P Tunnel" : "Nym Mixnet",
+      place: isI2p
+        ? (net.i2p ? "i2pd :4444 (online)" : "i2pd :4444 (offline)")
+        : (net.nym ? "SOCKS5 :1080 (online)" : "SOCKS5 :1080 (offline)"),
+      id: isI2p ? (net.i2p ? "garlic" : "down") : (net.nym ? "sphinx" : "down")
+    }
+  ];
+}
+
 const backend={
+  async status(){
+    try {
+      const st = await apiCall("GET", "/api/status");
+      S.net = { i2p: !!st.i2p, nym: !!st.nym, router: !!st.router, websockify: !!st.websockify };
+      return st;
+    } catch (e) {
+      console.error(e);
+      return S.net;
+    }
+  },
   async navigate(tabId,url){
-    if (!tabCircuits[tabId]) tabCircuits[tabId] = 'mesh_' + tabId + '_' + Math.random().toString(36).slice(2,6);
-    fetch(`/api/navigate?url=${encodeURIComponent(url)}&tab=${tabCircuits[tabId]}`).catch(console.error);
+    if (!tabCircuits[tabId]) tabCircuits[tabId] = 'mesh_' + tabId + '_' + randSuffix();
+    const res = await apiCall("POST", "/api/navigate", { url, tab: tabCircuits[tabId] });
+    if (res && res.vnc_token) {
+      tabVnc[tabId] = { token: res.vnc_token, port: res.vnc_port || VNC_PORT, disp: res.disp };
+    }
+    await this.status();
+    return res;
   },
   async newRoute(tabId){
     const oldTab = tabCircuits[tabId] || '';
-    const newTab = 'mesh_' + tabId + '_' + Math.random().toString(36).slice(2,6);
+    const newTab = 'mesh_' + tabId + '_' + randSuffix();
     tabCircuits[tabId] = newTab;
     const t = (typeof S !== 'undefined' && S.tabs) ? S.tabs.find(x => x.id === tabId) : null;
     const u = (t && t.url && !t.url.startsWith('mesh://')) ? t.url : '';
-    fetch(`/api/newroute?old_tab=${encodeURIComponent(oldTab)}&tab=${encodeURIComponent(newTab)}&url=${encodeURIComponent(u)}`).catch(console.error);
-    const pool=["I2P Guard","I2P Relay A","I2P Relay B","I2P Tunnel C","I2P Tunnel D","I2P Exit"];
-    const pick=()=>pool.splice(Math.floor(Math.random()*pool.length),1)[0];
-    return ["Inbound","Mix","Outbound"].map(role=>({role,place:pick(),id:newTab.slice(-4)+Math.random().toString(16).slice(2,6)}));
+    try {
+      const res = await apiCall("POST", "/api/newroute", { old_tab: oldTab, tab: newTab, url: u });
+      if (res) {
+        S.net = { i2p: !!res.i2p, nym: !!res.nym, router: !!res.router, websockify: !!res.websockify };
+        if (res.vnc_token) tabVnc[tabId] = { token: res.vnc_token, port: res.vnc_port || VNC_PORT, disp: res.disp };
+        else delete tabVnc[tabId];
+      }
+    } catch (e) {
+      console.error(e);
+    }
+    return buildRouteSummary(S.net, u, newTab);
   },
   async newIdentity(){
     Object.keys(tabCircuits).forEach(k => delete tabCircuits[k]);
-    fetch('/api/ident').catch(console.error);
+    Object.keys(tabVnc).forEach(k => delete tabVnc[k]);
+    await apiCall("POST", "/api/ident", {}).catch(console.error);
+    await this.status();
   },
   async closeTab(tabId){
+    delete tabVnc[tabId];
     if (tabCircuits[tabId]) {
-      fetch('/api/close?tab=' + encodeURIComponent(tabCircuits[tabId])).catch(console.error);
+      const c = tabCircuits[tabId];
       delete tabCircuits[tabId];
+      await apiCall("POST", "/api/close", { tab: c }).catch(console.error);
     }
   },
-  setSecurityLevel(level){
-    fetch('/api/config?level=' + encodeURIComponent(level)).catch(console.error);
+  async setSecurityLevel(level){
+    const res = await apiCall("POST", "/api/config", { level }).catch(console.error);
+    if (res && res.tabs) this._syncReloadedTabs(res.tabs);
   },
-  setProtection(key,on){
-    fetch('/api/config?pref=' + encodeURIComponent(key) + '&val=' + (on ? '1' : '0')).catch(console.error);
+  async setProtection(key,on){
+    const res = await apiCall("POST", "/api/config", { pref: key, val: on ? '1' : '0' }).catch(console.error);
+    if (res && res.tabs) this._syncReloadedTabs(res.tabs);
+  },
+  _syncReloadedTabs(reloaded){
+    for (const [tid, circuit] of Object.entries(tabCircuits)) {
+      if (reloaded[circuit] && reloaded[circuit].vnc_token) {
+        tabVnc[tid] = { token: reloaded[circuit].vnc_token, port: VNC_PORT, disp: reloaded[circuit].disp };
+      }
+    }
   }
 };
 
@@ -178,7 +257,7 @@ const PREFS=[
   ["erase","Erase data when I quit","Clears history, cookies and cache."],
   ["route","Send traffic through relays","Turn off to connect directly."]
 ];
-const S={tabs:[],active:null,pop:null,level:"standard",theme:"system",section:"appearance",prefs:{trackers:true,fingerprint:true,isolate:true,erase:true,route:true}};
+const S={tabs:[],active:null,pop:null,level:"standard",theme:"system",section:"appearance",net:{i2p:false,nym:false,router:false,websockify:false},prefs:{trackers:true,fingerprint:true,isolate:true,erase:true,route:true}};
 let n=0;
 const $=id=>document.getElementById(id);
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
@@ -204,7 +283,17 @@ async function go(raw){
   const isUrl=/^[\w-]+(\.[\w-]+)+(\/\S*)?$/.test(q)||/^https?:\/\//.test(q);
   const proto=/\.i2p(\/|$)/i.test(q)?"http://":"https://";t.url=isUrl?(/^https?:\/\//.test(q)?q:proto+q):"search:"+q;
   t.title=isUrl?q.replace(/^https?:\/\//,""):q;
-  await backend.navigate(t.id,t.url);render();progress();
+  await backend.navigate(t.id,t.url);
+  t.route=buildRouteSummary(S.net,t.url,tabCircuits[t.id]);
+  render();progress();
+}
+function statusBadgeText(){
+  if(!S.prefs.route)return "Direct connection (relays disabled)";
+  const parts=[];
+  parts.push(S.net.router?"Router :4446 online":"Router :4446 offline");
+  parts.push(S.net.i2p?"I2P :4444 online":"I2P :4444 offline");
+  parts.push(S.net.nym?"Nym :1080 online":"Nym :1080 offline");
+  return parts.join(" · ");
 }
 async function newRoute(){const t=cur();t.route=await backend.newRoute(t.id);render()}
 async function newIdentity(){
@@ -212,7 +301,7 @@ async function newIdentity(){
 }
 function progress(){const p=$("prog");p.classList.remove("run");void p.offsetWidth;p.classList.add("run");setTimeout(()=>p.classList.remove("run"),900)}
 function flow(r){return `<div class="flow"><div class="fn e"><i></i>You</div>${r.map(h=>`<div class="fl"></div><div class="fn"><i></i>${h.role}<br>${h.place}</div>`).join("")}<div class="fl"></div><div class="fn e"><i></i>Site</div></div>`}
-function netHtml(){const r=cur().route;return `<h1>Network</h1><div class="group">${S.prefs.route?r.map(h=>`<div class="row"><div>${h.role}<small>${h.place}</small></div><span style="color:var(--muted)">${h.id}</span></div>`).join(""):`<div class="row"><div>Relays are off<small>Traffic connects directly.</small></div></div>`}</div><button class="btn" data-act="newroute">New route</button>`}
+function netHtml(){const r=cur().route;return `<h1>Network</h1><div class="group">${S.prefs.route?r.map(h=>`<div class="row"><div>${esc(h.role)}<small>${esc(h.place)}</small></div><span style="color:var(--muted)">${esc(h.id)}</span></div>`).join(""):`<div class="row"><div>Relays are off<small>Traffic connects directly.</small></div></div>`}</div><button class="btn" data-act="newroute">New route</button>`}
 function setLevel(k){S.level=k;backend.setSecurityLevel(k);render()}
 function setTheme(t){
   S.theme=t;
@@ -235,7 +324,7 @@ function renderPop(){
   const p=$("pop"),t=cur();
   if(!S.pop){p.innerHTML="";return}
   if(S.pop==="route"){
-    p.innerHTML=`<div class="pop" style="left:90px"><h3>Connection</h3>${S.prefs.route?t.route.map(h=>`<div class="hop"><span>${h.role}</span><em>${h.place} · ${h.id}</em></div>`).join("")+`<p style="margin-top:8px">Your traffic hops through three relays before it reaches the site.</p><button class="btn alt" data-act="route">New route for this site</button>`:`<p>Relays are off. This tab connects directly and the site can see your address.</p>`}</div>`;
+    p.innerHTML=`<div class="pop" style="left:90px"><h3>Connection</h3>${S.prefs.route?t.route.map(h=>`<div class="hop"><span>${esc(h.role)}</span><em>${esc(h.place)} · ${esc(h.id)}</em></div>`).join("")+`<p style="margin-top:8px">.i2p routes via i2pd (:4444); clearnet routes via Nym Mixnet (:1080). Fails closed if offline.</p><button class="btn alt" data-act="route">New route for this tab</button>`:`<p>Relays are off. This tab connects directly and the site can see your address.</p>`}</div>`;
   }else{
     p.innerHTML=`<div class="pop" style="right:10px"><h3>Security level</h3><p>Higher levels block more features and break more sites.</p><div class="seg" role="group">${LEVELS.map(l=>`<button data-lvl="${l.k}" aria-pressed="${l.k===S.level}">${l.n}</button>`).join("")}</div><p style="margin:10px 0 12px">${LEVELS.find(l=>l.k===S.level).d}</p><button class="btn alt" data-act="settings">Open settings</button></div>`;
   }
@@ -246,11 +335,17 @@ function renderView(t){
   if(!t.url){
     v.innerHTML=`<div class="home"><div class="in"><img class="mark" alt="Mesh logo" src="data:image/webp;base64,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"><h1>Browse privately</h1><p class="sub">Each tab starts on a fresh route.</p>
     <form class="search" id="hsearch" onsubmit="return false"><input id="hq" placeholder="Search or enter address" aria-label="Search"><button class="btn" data-act="hsearch" aria-label="Search">${ic("search")}</button></form>
-    <span class="status"><i></i>${S.prefs.route?"Connected through 3 relays":"Direct connection"}</span><div class="acts"><button data-act="newroute">${ic("node")}New route</button><button data-act="secure">${ic("shield")}Security level</button><button data-act="ident">${ic("ident")}New identity</button></div></div></div>`;
+    <span class="status"><i></i>${esc(statusBadgeText())}</span><div class="acts"><button data-act="newroute">${ic("node")}New route</button><button data-act="secure">${ic("shield")}Security level</button><button data-act="ident">${ic("ident")}New identity</button></div></div></div>`;
     return;
   }
-  const vncPort = 6080 + ((t.id - 1) % 4);
-  v.innerHTML=`<iframe src="http://127.0.0.1:${vncPort}/vnc_lite.html?autoconnect=1&scale=true&resize=scale&reconnect=1" style="position:absolute; inset:0; width:100%; height:100%; border:none; display:block;"></iframe>`;
+  const vncInfo = tabVnc[t.id];
+  if (!vncInfo || !vncInfo.token) {
+    v.innerHTML=`<div class="home"><div class="in"><span class="status"><i></i>Starting isolated sandbox…</span></div></div>`;
+    return;
+  }
+  const vncHost = window.location.hostname === "localhost" ? "localhost" : "127.0.0.1";
+  const wsPath = encodeURIComponent("websockify?token=" + vncInfo.token);
+  v.innerHTML=`<iframe src="http://${vncHost}:${vncInfo.port}/vnc_lite.html?autoconnect=1&scale=true&resize=scale&reconnect=1&path=${wsPath}" style="position:absolute; inset:0; width:100%; height:100%; border:none; display:block;"></iframe>`;
 }
 function renderSettings(v){
   const sec=[["appearance","Appearance"],["security","Security"],["privacy","Privacy"],["network","Network"]];
@@ -304,7 +399,7 @@ document.addEventListener("keydown",e=>{
   if((e.ctrlKey||e.metaKey)&&e.key==="w"){e.preventDefault();closeTab(S.active)}
   if((e.ctrlKey||e.metaKey)&&e.key==="l"){e.preventDefault();$("url").select()}
 });
-addTab();
+(async()=>{await backend.status();await addTab();})();
 </script>
 </body>
 </html>
