@@ -28,7 +28,9 @@
 !userscripts/**
 !LICENSE
 !tests/
-!tests/**
+!tests/*.py
+**/__pycache__/
+*.pyc
 !.github/
 !.github/workflows/
 !.github/workflows/**
